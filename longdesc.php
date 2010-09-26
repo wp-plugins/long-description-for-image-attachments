@@ -1,6 +1,6 @@
 <?php
 /*
-Plugin Name: Longdesc
+Plugin Name: Long Description
 Version: 1.1
 Author: Michael Fields
 Author URI: http://wordpress.mfields.org/
