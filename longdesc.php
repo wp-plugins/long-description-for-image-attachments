@@ -1,12 +1,13 @@
 <?php
 /*
-Plugin Name: Long Description
-Version: 1.1
-Author: Michael Fields
-Author URI: http://wordpress.mfields.org/
-License: GPLv2
+Plugin Name:       Long Description
+Description:       Automatically adds a londesc attribute to images when inserting into post content with the media uploader.
+Version:           1.2
+Author:            Michael Fields
+Author URI:        http://wordpress.mfields.org/
+License:           GPLv2
 
-Copyright 2010  Michael Fields  michael@mfields.org
+Copyright 2010-2011  Michael Fields  michael@mfields.org
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as published by
@@ -29,47 +30,87 @@ load_plugin_textdomain( 'longdesc', false, dirname( plugin_basename( __FILE__ ) 
  * The directory where the longdesc plug-in is installed.
  * @since 2010-09-26
  */
-define( 'LONGDESC_DIR', dirname( __FILE__ ) . '/' );
+define( 'LONGDESC_DIR', trailingslashit( dirname( __FILE__ ) ) );
 
 
 /**
- * Generate a html document that displays only post_content.
- * @uses $_GET['id'] int post ID.
- * @return void.
- * @since 2010-09-26
+ * Load Template.
+ *
+ * The ID for an image attachment is expected to be
+ * passed via $_GET['longdesc']. If this value exists
+ * and a post is successfully queried, postdata will
+ * be prepared and a template will be loaded to display
+ * the post content.
+ *
+ * This template must be named "longdesc-template.php".
+ *
+ * First, this function will look in the child theme
+ * then in the parent theme and if no template is found
+ * in either theme, the default template will be loaded
+ * from the plugin's folder.
+ *
+ * This function is hooked into the "template_redirect"
+ * action and terminates script execution.
+ *
+ * @return    void
+ *
+ * @since     2010-09-26
+ * @alter     2011-03-27
  */
 function longdesc_template() {
-	if( isset( $_GET['longdesc'] ) ) {
-		global $post;
-		$content = '';
-		$id = (int) abs( $_GET['longdesc'] );
-		$post = get_post( $id );
-		if( isset( $post->post_content ) ) {
-			remove_filter( 'the_content', 'prepend_attachment' );
-			setup_postdata( $post );
-			$template = locate_template( array( 'longdesc-template.php' ) );
-			if( !empty( $template ) ) {
-				require_once( $template );
-			}
-			else {
-				require_once( LONGDESC_DIR . 'longdesc-template.php' );
-			}
-		}
-		else {
-			header( 'HTTP/1.0 404 Not Found' );
-		}
+	
+	/* Return early if there is no reason to proceed. */
+	if ( ! isset( $_GET['longdesc'] ) ) {
+		return;
+	}
+
+	global $post;
+
+	/* Get the image attachment's data. */
+	$id = absint( $_GET['longdesc'] );
+	$post = get_post( $id );
+	if ( is_object( $post ) ) {
+		setup_postdata( $post );
+	}
+
+	/* Attachment must be an image. */
+	if ( false === strpos( get_post_mime_type(), 'image' ) ) {
+		header( 'HTTP/1.0 404 Not Found' );
 		exit;
 	}
+
+	/* The whole point here is to NOT show an image :) */
+	remove_filter( 'the_content', 'prepend_attachment' );
+
+	/* Check to see if there is a template in the theme. */
+	$template = locate_template( array( 'longdesc-template.php' ) );
+	if ( ! empty( $template ) ) {
+		require_once( $template );
+		exit;
+	}
+	/* Use plugin's template file. */
+	else {
+		require_once( LONGDESC_DIR . 'longdesc-template.php' );
+		exit;
+	}
+
+	/* You've gone too far! */
+	header( 'HTTP/1.0 404 Not Found' );
+	exit;
 }
 add_action( 'template_redirect', 'longdesc_template' );
 
 
 /**
+ * Anchor.
+ *
  * Create anchor id for linking from a Long Description to referring post.
  * Also creates an anchor to return from Long Description page.
- * @param int ID of the post which contains an image with a longdesc attribute.
- * @return string
- * @since 2010-09-26
+ *
+ * @param     int       ID of the post which contains an image with a longdesc attribute.
+ * @return    string
+ *
+ * @since     2010-09-26
  */
 function longdesc_return_anchor( $id ) {
 	return 'longdesc-return-' . $id;
@@ -77,26 +118,33 @@ function longdesc_return_anchor( $id ) {
 
 
 /**
+ * Add Attribute.
+ *
  * Add longdesc attribute when WordPress sends image to the editor.
  * Also creates an anchor to return from Long Description page.
- * @uses longdesc_return_anchor()
- * @return string
- * @since 2010-09-20
- * @alter 2010-09-26
+ *
+ * @return    string
+ *
+ * @since     2010-09-20
+ * @alter     2011-04-06
  */
 function longdesc_add_attr( $html, $id, $caption, $title, $align, $url, $size, $alt ) {
-	$id = (int) $id;
-	$args = array( 'longdesc' => $id );
-	if( isset( $_GET['post_id'] ) ) {
-		$args['referrer'] = (int) $_GET['post_id'];
-	}
-	$url = add_query_arg( $args, home_url() );
-	$post = get_post( $id );
-	if( isset( $post->post_content ) && !empty( $post->post_content ) ) {
+
+	/* Get data for the image attachment. */
+	$image = get_post( $id );
+
+	if ( isset( $image->ID ) && !empty( $image->ID ) ) {
+		$args = array( 'longdesc' => $image->ID );
+		/* The referrer is the post that the image is inserted into. */
+		if ( isset( $_GET['post_id'] ) ) {
+			$args['referrer'] = (int) $_GET['post_id'];
+		}
 		$search = 'title="' . $title . '"';
-		$replace = $search . ' longdesc="' . $url . '"';
-		return str_replace( $search, $replace, $html ) . '<a id="' . longdesc_return_anchor( $id ) . '"></a>';
+		$replace = $search . ' longdesc="' . esc_url( add_query_arg( $args, home_url() ) ) . '"';
+		$html = str_replace( $search, $replace, $html );
+		$html.= '<a id="' . esc_attr( longdesc_return_anchor( $image->ID ) ) . '"></a>';
 	}
+
 	return $html;
 }
 add_filter( 'image_send_to_editor', 'longdesc_add_attr', 10, 8 );
@@ -105,4 +153,3 @@ add_filter( 'image_send_to_editor', 'longdesc_add_attr', 10, 8 );
 /* Backward compatibility with previous versions. */
 add_action( 'wp_ajax_longdesc', 'longdesc' );
 add_action( 'wp_ajax_nopriv_longdesc', 'longdesc' );
-?>
